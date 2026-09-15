@@ -19,7 +19,7 @@ export default function App(){
   return <Shell profile={profile} page={page} setPage={setPage} menu={menu} setMenu={setMenu}/>
 }
 
-function Brand({small=false}:{small?:boolean}){return <div className={`brand ${small?'brand-small':''}`}><img src="/bantu-beres-logo-transparent.png" alt="Bantu Beres"/><span>Gajian <b>Pro</b></span></div>}
+function Brand({small=false}:{small?:boolean}){return <div className={`brand ${small?'brand-small':''}`}><img src="https://raw.githubusercontent.com/hudbrother62-coder/bantu-beres-gajian-pro/main/public/bantu-beres-logo-transparent.png" alt="Bantu Beres"/><span>Gajian <b>Pro</b></span></div>}
 function Boot({text}:{text:string}){return <main className="boot"><Brand/><p>{text}</p></main>}
 
 function Auth(){
