@@ -8,7 +8,7 @@ type Row = Record<string, any>
 const steps = ['Personal', 'Kepegawaian', 'Payroll']
 const money = (value: number) => new Intl.NumberFormat('id-ID', { style: 'currency', currency: 'IDR', maximumFractionDigits: 0 }).format(value || 0)
 const dateNow = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Asia/Jakarta', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date())
-const blank = (): Row => ({ employee_code: '', full_name: '', email: '', phone: '', department: '', position: '', rank_name: '', employment_type: 'Tetap Permanen', placement: 'Baru Direkrut', hire_date: dateNow(), contract_end: '', base_salary: 0, bank_name: '', bank_account_name: '', bank_account_number: '', profile_id: '', location_id: '', schedule_id: '', personal_data: {}, payroll_data: {}, is_active: false, onboarding_status: 'draft' })
+const blank = (): Row => ({ employee_code: '', full_name: '', email: '', phone: '', department: '', position: '', rank_name: '', employment_type: 'Tetap Permanen', placement: 'Baru Direkrut', hire_date: dateNow(), contract_end: '', base_salary: 0, bank_name: '', bank_account_name: '', bank_account_number: '', profile_id: '', supervisor_profile_id: '', location_id: '', schedule_id: '', personal_data: {}, payroll_data: {}, is_active: false, onboarding_status: 'draft' })
 const personalFields = [
   ['birth_place', 'Tempat lahir'], ['birth_date', 'Tanggal lahir', 'date'],
   ['gender', 'Jenis kelamin', 'Laki-laki|Perempuan'], ['marital_status', 'Status perkawinan', 'Belum menikah|Menikah|Cerai hidup|Cerai mati'],
@@ -32,7 +32,7 @@ export function EmployeeWorkflow({ profile }: { profile: Profile }) {
     setLoading(true)
     const results = await Promise.all([
       supabase.from('employees').select('*,employee_schedules(schedule_id)').order('full_name'),
-      supabase.from('profiles').select('id,full_name,username,is_active').eq('is_active', true),
+      supabase.from('profiles').select('id,full_name,username,is_active,role').eq('is_active', true),
       supabase.from('work_schedules').select('*').order('name'),
       supabase.from('company_locations').select('*').eq('is_active', true).order('name'),
       supabase.from('hr_master_items').select('*').eq('is_active', true).order('name'),
@@ -53,10 +53,12 @@ export function EmployeeWorkflow({ profile }: { profile: Profile }) {
     saving.current = true; setBusy(true); setFormError('')
     try {
       const payload: Row = { ...editing, onboarding_status: draft ? 'draft' : 'complete', is_active: draft ? false : (editing.onboarding_status === 'draft' ? true : editing.is_active) }
-      for (const key of ['profile_id', 'location_id', 'hire_date', 'contract_end']) payload[key] ||= null
+      for (const key of ['profile_id', 'supervisor_profile_id', 'location_id', 'hire_date', 'contract_end']) payload[key] ||= null
       delete payload.employee_schedules; delete payload.created_at; delete payload.updated_at
       const { data, error } = await supabase.rpc('save_employee', { p_data: payload, p_id: editing.id || null, p_expected_updated_at: editing.updated_at || null })
       if (error) throw error
+      const supervisorUpdate = await supabase.from('employees').update({ supervisor_profile_id: payload.supervisor_profile_id || null }).eq('id', data)
+      if (supervisorUpdate.error) throw supervisorUpdate.error
       if (close) { setEditing(null); setFilter(draft ? 'draft' : payload.is_active ? 'active' : 'inactive') }
       else {
         const refreshed = await supabase.from('employees').select('*').eq('id', data).single()
@@ -80,6 +82,7 @@ export function EmployeeWorkflow({ profile }: { profile: Profile }) {
   }
   const select = (key: string, label: string, options: Row[], required = false) => <label className="field"><span>{label}{required ? ' *' : ''}</span><select value={editing?.[key] || ''} required={required} onChange={e => change(key, e.target.value)}><option value="">Pilih {label.toLowerCase()}</option>{options.map(x => <option key={x.id} value={x.id}>{x.name || x.full_name}</option>)}</select></label>
   const master = (key: string, label: string, kind: string) => <label className="field"><span>{label}</span><input list={`master-${kind}`} value={editing?.[key] || ''} onChange={e => change(key, e.target.value)} /><datalist id={`master-${kind}`}>{masters.filter(m => m.kind === kind).map(m => <option key={m.id} value={m.name} />)}</datalist></label>
+  const supervisors = members.filter(m => m.role === 'supervisor' && m.is_active !== false && m.id !== editing?.profile_id)
   const visible = rows.filter(r => filter === 'all' || (filter === 'draft' ? r.onboarding_status === 'draft' : filter === 'active' ? r.is_active : !r.is_active && r.onboarding_status !== 'draft')).filter(r => `${r.full_name} ${r.employee_code} ${r.department || ''}`.toLowerCase().includes(query.toLowerCase()))
   return <section className="page">
     <div className="intro"><div><p className="eyebrow">Data master</p><h1>Karyawan</h1><p>Personal → kepegawaian → payroll. Data dapat diedit, dinonaktifkan, dan data tanpa histori dapat dihapus.</p></div>{canEdit && <button className="button primary" onClick={() => start()}>Tambah karyawan</button>}</div>
@@ -94,7 +97,7 @@ export function EmployeeWorkflow({ profile }: { profile: Profile }) {
       <form className="form" onSubmit={(event: FormEvent) => { event.preventDefault(); if (step < 2) { if (editing.onboarding_status === 'draft') void save(true, false); else setStep(step + 1) } else void save(false, true) }}>
         <fieldset disabled={busy} className="workflow-fields"><legend>{steps[step]}</legend>
         {step === 0 && <div className="two">{field('employee_code', 'ID karyawan', 'text', undefined, true)}{field('full_name', 'Nama lengkap', 'text', undefined, true)}{field('email', 'Email', 'email')}{field('phone', 'Nomor ponsel', 'tel')}{personalFields.map(([key, label, type]) => field(key, label, type || 'text', 'personal_data'))}</div>}
-        {step === 1 && <><div className="two">{field('employment_type', 'Status karyawan', 'Tetap Permanen|Tetap Percobaan|PKWT|Pekerja Lepas|Tenaga Ahli|Magang|Mitra|Tetap|Kontrak|Harian')}{field('hire_date', 'Tanggal bergabung', 'date', undefined, true)}{field('placement', 'Penempatan kerja', 'Baru Direkrut|Demosi|Diangkat Karyawan Tetap|Mutasi|Promosi|Rotasi')}{master('department', 'Organisasi', 'organization')}{master('position', 'Jabatan', 'position')}{master('rank_name', 'Pangkat', 'rank')}{select('schedule_id', 'Jadwal kerja', schedules, true)}{select('location_id', 'Lokasi kantor', locations)}{field('contract_end', 'Tanggal akhir kerja', 'date')}</div><p>Organisasi, jabatan, dan pangkat dapat dipilih dari Pengaturan atau diketik. Jadwal dan lokasi dibuat melalui Jadwal & Lokasi.</p></>}
+        {step === 1 && <><div className="two">{field('employment_type', 'Status karyawan', 'Tetap Permanen|Tetap Percobaan|PKWT|Pekerja Lepas|Tenaga Ahli|Magang|Mitra|Tetap|Kontrak|Harian')}{field('hire_date', 'Tanggal bergabung', 'date', undefined, true)}{field('placement', 'Penempatan kerja', 'Baru Direkrut|Demosi|Diangkat Karyawan Tetap|Mutasi|Promosi|Rotasi')}{master('department', 'Organisasi', 'organization')}{master('position', 'Jabatan', 'position')}{master('rank_name', 'Pangkat', 'rank')}{select('supervisor_profile_id', 'Atasan langsung', supervisors)}{select('schedule_id', 'Jadwal kerja', schedules, true)}{select('location_id', 'Lokasi kantor', locations)}{field('contract_end', 'Tanggal akhir kerja', 'date')}</div><p>Organisasi, jabatan, dan pangkat dapat dipilih dari Pengaturan atau diketik. Jadwal dan lokasi dibuat melalui Jadwal & Lokasi.</p></>}
         {step === 2 && <><div className="two">{field('base_salary', 'Gaji pokok', 'number', undefined, true)}{field('bank_name', 'Bank')}{field('bank_account_name', 'Nama pemilik rekening')}{field('bank_account_number', 'Nomor rekening')}{field('npwp', 'NPWP', 'text', 'payroll_data')}{field('tax_status', 'Status pajak', 'TK/0|TK/1|TK/2|TK/3|K/0|K/1|K/2|K/3|K/I/0|K/I/1|K/I/2|K/I/3', 'payroll_data')}{field('tax_method', 'Metode pajak', 'Gross|Gross up|Net', 'payroll_data')}{field('bpjs_health', 'Nomor BPJS Kesehatan', 'text', 'payroll_data')}{field('bpjs_employment', 'Nomor BPJS Ketenagakerjaan', 'text', 'payroll_data')}{select('profile_id', 'Akun tim / ESS', members.filter(m => m.id === editing.profile_id || !rows.some(r => r.profile_id === m.id)))}</div><p className="note">NPWP dan BPJS disimpan sebagai data karyawan. Perhitungan pajak dan iuran otomatis belum diaktifkan.</p>{editing.onboarding_status === 'complete' && <label className="checkbox-line"><input type="checkbox" checked={editing.is_active} onChange={e => change('is_active', e.target.checked)} />Karyawan aktif. Matikan untuk menonaktifkan tanpa menghapus histori.</label>}</>}
         </fieldset><div className="workflow-actions">{step > 0 && <button type="button" className="button secondary" disabled={busy} onClick={() => setStep(step - 1)}>Kembali</button>}{editing.onboarding_status === 'draft' && <button className="button secondary" type="button" disabled={busy} onClick={() => void save(true, true)}>Simpan draft</button>}<button className="button primary" disabled={busy}>{busy ? 'Menyimpan…' : step < 2 ? 'Simpan & lanjutkan' : 'Simpan karyawan'}</button></div>
       </form></section></div>}
