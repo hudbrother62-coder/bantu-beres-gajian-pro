@@ -27,11 +27,11 @@ Deno.serve(async (req) => {
       .maybeSingle();
     if (!caller?.is_active || caller.role !== "owner") return json({ error: "Hanya Owner yang dapat membuat akun tim." }, 403);
 
-    const { fullName, username, password, role, jobTitle } = await req.json();
+    const { fullName, username, password, role, jobTitle, employeeId, employeeCode, department, position } = await req.json();
     const normalizedUsername = String(username || "").trim().toLowerCase();
     const allowedRoles = ["hr_admin", "finance", "supervisor", "employee"];
     if (!fullName || !normalizedUsername || !password || !allowedRoles.includes(role)) {
-      return json({ error: "Data anggota tim belum lengkap." }, 400);
+      if (!employeeId) return json({ error: "Data anggota tim belum lengkap." }, 400);
     }
     if (!/^[a-z0-9._-]{4,30}$/.test(normalizedUsername) || String(password).length < 8) {
       return json({ error: "Username atau password belum memenuhi ketentuan." }, 400);
@@ -39,26 +39,85 @@ Deno.serve(async (req) => {
     const { data: existing } = await admin.from("profiles").select("id").eq("username", normalizedUsername).maybeSingle();
     if (existing) return json({ error: "Username sudah digunakan." }, 409);
 
+    let linkedEmployee: {
+      id: string;
+      full_name: string;
+      email: string | null;
+      phone: string | null;
+      department: string | null;
+      position: string | null;
+      profile_id: string | null;
+    } | null = null;
+    if (employeeId) {
+      const { data: employee, error: employeeError } = await admin
+        .from("employees")
+        .select("id, full_name, email, phone, department, position, profile_id")
+        .eq("id", String(employeeId))
+        .eq("company_id", caller.company_id)
+        .eq("is_active", true)
+        .maybeSingle();
+      if (employeeError || !employee) return json({ error: "Karyawan aktif tidak ditemukan." }, 404);
+      if (employee.profile_id) return json({ error: "Karyawan ini sudah terhubung ke akun tim lain." }, 409);
+      linkedEmployee = employee;
+    }
+
+    const resolvedFullName = String(linkedEmployee?.full_name || fullName).trim();
+    if (!resolvedFullName) return json({ error: "Nama anggota tim belum lengkap." }, 400);
+
     const teamEmail = `${normalizedUsername}@team.bantuberes.local`;
     const { data: member, error: userError } = await admin.auth.admin.createUser({
       email: teamEmail,
       password: String(password),
       email_confirm: true,
-      user_metadata: { full_name: String(fullName).trim() },
+      user_metadata: { full_name: resolvedFullName },
     });
     if (userError || !member.user) return json({ error: userError?.message || "Akun tim tidak dapat dibuat." }, 400);
 
     const { error: profileError } = await admin.from("profiles").insert({
       id: member.user.id,
       company_id: caller.company_id,
-      full_name: String(fullName).trim(),
+      full_name: resolvedFullName,
       username: normalizedUsername,
       role,
-      job_title: jobTitle ? String(jobTitle).trim() : null,
+      job_title: String(jobTitle || linkedEmployee?.position || position || "").trim() || null,
+      phone: linkedEmployee?.phone || null,
     });
     if (profileError) {
       await admin.auth.admin.deleteUser(member.user.id);
       return json({ error: "Profil anggota tim tidak dapat dibuat." }, 500);
+    }
+
+    if (linkedEmployee) {
+      const { error: linkError } = await admin
+        .from("employees")
+        .update({ profile_id: member.user.id })
+        .eq("id", linkedEmployee.id)
+        .eq("company_id", caller.company_id)
+        .is("profile_id", null);
+      if (linkError) {
+        await admin.from("profiles").delete().eq("id", member.user.id);
+        await admin.auth.admin.deleteUser(member.user.id);
+        return json({ error: "Akun dibuat, tetapi belum bisa dihubungkan ke data karyawan." }, 500);
+      }
+    } else if (role === "employee") {
+      const code = String(employeeCode || normalizedUsername).trim().toUpperCase();
+      const { error: employeeError } = await admin.from("employees").insert({
+        company_id: caller.company_id,
+        profile_id: member.user.id,
+        employee_code: code,
+        full_name: resolvedFullName,
+        department: String(department || "").trim() || null,
+        position: String(position || jobTitle || "Karyawan").trim() || null,
+        employment_type: "Tetap",
+        hire_date: new Date().toISOString().slice(0, 10),
+        is_active: false,
+        onboarding_status: "draft",
+      });
+      if (employeeError) {
+        await admin.from("profiles").delete().eq("id", member.user.id);
+        await admin.auth.admin.deleteUser(member.user.id);
+        return json({ error: "Akun tim belum bisa dibuat karena data karyawan gagal disiapkan." }, 500);
+      }
     }
     return json({ ok: true });
   } catch {
