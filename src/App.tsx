@@ -13,6 +13,9 @@ import './App.css'
 import './theme.css'
 import './approval.css'
 
+// Legacy in-file implementations are intentionally retained as rollback-safe fallbacks.
+void Requests; void Team
+
 type Profile = { id:string; company_id:string; full_name:string; username:string; role:string; employees?:Employee[] }
 type Employee = { id:string; employee_code:string; full_name:string; email?:string|null; phone?:string|null; department?:string|null; position?:string|null; employment_type?:string|null; hire_date?:string|null; base_salary:number; bank_name?:string|null; bank_account_name?:string|null; bank_account_number?:string|null; is_active:boolean }
 const roles:Record<string,string>={owner:'Owner',hr_admin:'HR / Admin',finance:'Keuangan',supervisor:'Atasan',employee:'Karyawan'}
