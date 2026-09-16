@@ -1,0 +1,29 @@
+name: Enable Supervisor Workspace
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - .github/workflows/enable-supervisor-workspace.yml
+
+permissions:
+  contents: write
+
+jobs:
+  wire-and-verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - run: python scripts/enable-supervisor-workspace.py
+      - run: npm ci
+      - run: npm run build
+      - name: Commit verified supervisor workspace
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add src/App.tsx src/employees.tsx
+          git diff --cached --quiet && exit 0
+          git commit -m "Enable ideal supervisor workspace"
+          git push origin HEAD:main
