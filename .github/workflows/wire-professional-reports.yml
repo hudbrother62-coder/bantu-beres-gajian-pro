@@ -1,0 +1,46 @@
+name: Wire professional reports
+
+on:
+  push:
+    paths:
+      - '.github/workflows/wire-professional-reports.yml'
+
+permissions:
+  contents: write
+
+jobs:
+  wire:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: main
+      - name: Connect professional report module
+        run: |
+          python - <<'PY'
+          from pathlib import Path
+          p = Path('src/App.tsx')
+          s = p.read_text()
+          old_import = "import { FinanceOps, RecruitmentOps, ReportsOps, TrackingOps, VisitsOps } from './operations'"
+          new_import = "import { FinanceOps, RecruitmentOps, TrackingOps, VisitsOps } from './operations'\nimport { ReportsManagement } from './reports-management'"
+          old_route = "if(page==='Laporan')return <ReportsOps/>;"
+          new_route = "if(page==='Laporan')return <ReportsManagement profile={profile}/>;"
+          if old_import not in s:
+              raise SystemExit('Import ReportsOps tidak ditemukan; App.tsx tidak diubah.')
+          if old_route not in s:
+              raise SystemExit('Route laporan lama tidak ditemukan; App.tsx tidak diubah.')
+          s = s.replace(old_import, new_import, 1).replace(old_route, new_route, 1)
+          p.write_text(s)
+          PY
+      - name: Verify production build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit wiring and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/wire-professional-reports.yml
+          git add src/App.tsx
+          git commit -m "feat: activate professional company reports"
+          git push origin main
