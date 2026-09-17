@@ -116,14 +116,11 @@ export function EmployeeImport({profile,onImported}:{profile:Profile;onImported:
  const importRows=async()=>{
   if(!prepared.length||issues.length||busy)return
   setBusy(true);setMessage('');setProgress(0)
-  for(let i=0;i<prepared.length;i++){
-   const item=prepared[i]
-   const {data,error}=await supabase.rpc('save_employee',{p_data:item.payload,p_id:null,p_expected_updated_at:null})
-   if(error){setIssues([{row:item.row,message:`Import berhenti pada ${item.name}: ${error.message}`}]);setBusy(false);return}
-   if(item.supervisorProfileId){const supervisorUpdate=await supabase.from('employees').update({supervisor_profile_id:item.supervisorProfileId}).eq('id',data);if(supervisorUpdate.error){setIssues([{row:item.row,message:`Data ${item.name} masuk, tetapi atasan belum tersimpan: ${supervisorUpdate.error.message}`}]);setBusy(false);return}}
-   setProgress(i+1)
-  }
-  setBusy(false);setOpen(false);setMessage(`${prepared.length} data karyawan berhasil diimport.`);setPrepared([]);onImported()
+  const rows=prepared.map(item=>({row:item.row,name:item.name,payload:item.payload,supervisor_profile_id:item.supervisorProfileId||null}))
+  const {data,error}=await supabase.rpc('import_employees_batch',{p_rows:rows})
+  if(error){setIssues([{row:0,message:error.message||'Import gagal. Tidak ada data yang disimpan.'}]);setBusy(false);setProgress(0);return}
+  const imported=Number(data?.imported||prepared.length)
+  setProgress(imported);setBusy(false);setOpen(false);setMessage(`${imported} data karyawan berhasil diimport. Seluruh file tersimpan sebagai satu transaksi.`);setPrepared([]);onImported()
  }
 
  if(!canImport)return null
@@ -131,6 +128,6 @@ export function EmployeeImport({profile,onImported}:{profile:Profile;onImported:
   <div><p className="eyebrow">Import massal</p><h3>Masukkan data karyawan dari Excel</h3><p>Gunakan template resmi agar semua kolom terbaca dan divalidasi sebelum masuk ke database.</p></div>
   <div className="employee-import-actions"><button className="button secondary" onClick={downloadTemplate}><Download/>Unduh template Excel</button><button className="button primary" onClick={()=>fileRef.current?.click()}><Upload/>Import Excel</button><input ref={fileRef} hidden type="file" accept=".xlsx,.xls" onChange={e=>{const f=e.target.files?.[0];if(f)void parseFile(f);e.currentTarget.value=''}}/></div>
   {message&&<p className="note employee-import-message" role="status">{message}</p>}
-  {open&&<div className="modal-layer"><button className="backdrop" onClick={()=>!busy&&setOpen(false)}/><section className="modal import-modal"><header><div><p className="eyebrow">Validasi import</p><h3>{fileName||'File Excel'}</h3></div><button className="icon" disabled={busy} onClick={()=>setOpen(false)}><X/></button></header><div className="import-summary"><div><span>Siap diimport</span><b>{prepared.length}</b></div><div className={issues.length?'has-error':''}><span>Masalah ditemukan</span><b>{issues.length}</b></div></div>{issues.length>0?<div className="import-errors"><b>Perbaiki file sebelum import</b>{issues.slice(0,20).map((x,i)=><p key={`${x.row}-${i}`}>{x.row?`Baris ${x.row}: `:''}{x.message}</p>)}{issues.length>20&&<small>+ {issues.length-20} masalah lainnya.</small>}</div>:<div className="import-ready"><FileSpreadsheet/><div><b>Semua baris lolos validasi.</b><p>Data baru akan dibuat setelah tombol Import ditekan.</p></div></div>}{busy&&<div className="import-progress"><span>Memasukkan {progress} dari {prepared.length} karyawan…</span><progress value={progress} max={prepared.length}/></div>}<div className="import-footer"><button className="button secondary" disabled={busy} onClick={()=>setOpen(false)}>Batal</button><button className="button primary" disabled={busy||!!issues.length||!prepared.length} onClick={()=>void importRows()}>{busy?'Mengimport…':`Import ${prepared.length} karyawan`}</button></div></section></div>}
+  {open&&<div className="modal-layer"><button className="backdrop" onClick={()=>!busy&&setOpen(false)}/><section className="modal import-modal"><header><div><p className="eyebrow">Validasi import</p><h3>{fileName||'File Excel'}</h3></div><button className="icon" disabled={busy} onClick={()=>setOpen(false)}><X/></button></header><div className="import-summary"><div><span>Siap diimport</span><b>{prepared.length}</b></div><div className={issues.length?'has-error':''}><span>Masalah ditemukan</span><b>{issues.length}</b></div></div>{issues.length>0?<div className="import-errors"><b>Perbaiki file sebelum import</b>{issues.slice(0,20).map((x,i)=><p key={`${x.row}-${i}`}>{x.row?`Baris ${x.row}: `:''}{x.message}</p>)}{issues.length>20&&<small>+ {issues.length-20} masalah lainnya.</small>}</div>:<div className="import-ready"><FileSpreadsheet/><div><b>Semua baris lolos validasi.</b><p>Data baru akan dibuat setelah tombol Import ditekan. Jika satu baris gagal di server, seluruh import dibatalkan.</p></div></div>}{busy&&<div className="import-progress"><span>Memasukkan {progress} dari {prepared.length} karyawan…</span><progress value={progress} max={prepared.length}/></div>}<div className="import-footer"><button className="button secondary" disabled={busy} onClick={()=>setOpen(false)}>Batal</button><button className="button primary" disabled={busy||!!issues.length||!prepared.length} onClick={()=>void importRows()}>{busy?'Mengimport…':`Import ${prepared.length} karyawan`}</button></div></section></div>}
  </section>
 }
