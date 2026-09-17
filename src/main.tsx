@@ -2,6 +2,7 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import './index.css'
 import './dark-logo.css'
+import './mobile-fixes.css'
 import App from './App.tsx'
 import { GlobalActionFeedback } from './action-feedback'
 
