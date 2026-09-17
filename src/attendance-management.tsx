@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import { Clock3, MapPin } from 'lucide-react'
 import { supabase } from './lib/supabase'
+import { AdminAttendance } from './attendance-admin'
 
 type Profile={id:string;company_id:string;full_name?:string;role:string}
 type Employee={id:string;employee_code:string;full_name:string;department?:string|null;position?:string|null;is_active:boolean;profile_id?:string|null}
@@ -13,26 +14,26 @@ const localDate=(timezone:string)=>new Intl.DateTimeFormat('en-CA',{timeZone:tim
 function Empty({text}:{text:string}){return <div className="empty"><p>{text}</p></div>}
 
 export function AttendanceManagement({profile}:{profile:Profile}){
-  const canManage=['owner','hr_admin'].includes(profile.role)
-  const [employees,setEmployees]=useState<Employee[]>([])
+  if(['owner','hr_admin'].includes(profile.role)) return <AdminAttendance profile={profile}/>
+  return <SelfAttendance profile={profile}/>
+}
+
+function SelfAttendance({profile}:{profile:Profile}){
   const [rows,setRows]=useState<AttendanceRow[]>([])
   const [self,setSelf]=useState<Employee|null>(null)
   const [timezone,setTimezone]=useState('Asia/Jakarta')
   const [message,setMessage]=useState('')
   const [locating,setLocating]=useState(false)
-  const [busy,setBusy]=useState('')
 
   const load=useCallback(async()=>{
     const companyResult=await supabase.from('companies').select('timezone').eq('id',profile.company_id).single()
     const tz=companyResult.data?.timezone||'Asia/Jakarta'
     setTimezone(tz)
     const day=localDate(tz)
-    const [employeeResult,attendanceResult,selfResult]=await Promise.all([
-      supabase.from('employees').select('id,employee_code,full_name,department,position,is_active,profile_id').eq('is_active',true).order('full_name'),
+    const [attendanceResult,selfResult]=await Promise.all([
       supabase.from('attendance_records').select('id,employee_id,attendance_date,status,check_in_at,check_out_at,location_note,employees(full_name,employee_code)').eq('attendance_date',day).order('check_in_at'),
       supabase.from('employees').select('id,employee_code,full_name,department,position,is_active,profile_id').eq('profile_id',profile.id).eq('is_active',true).maybeSingle(),
     ])
-    setEmployees((employeeResult.data||[]) as Employee[])
     setRows((attendanceResult.data||[]) as AttendanceRow[])
     setSelf((selfResult.data||null) as Employee|null)
   },[profile.company_id,profile.id])
@@ -66,25 +67,11 @@ export function AttendanceManagement({profile}:{profile:Profile}){
     }finally{setLocating(false)}
   }
 
-  const markManual=async(employee:Employee)=>{
-    const day=localDate(timezone)
-    setBusy(employee.id);setMessage('')
-    const {error}=await supabase.from('attendance_records').insert({company_id:profile.company_id,employee_id:employee.id,attendance_date:day,status:'present',check_in_at:new Date().toISOString(),location_note:'Presensi manual oleh Owner/HR',admin_note:'Override presensi manual'})
-    setBusy('')
-    setMessage(error?(error.code==='23505'?'Presensi karyawan ini sudah tercatat hari ini.':error.message):`Presensi manual ${employee.full_name} berhasil dicatat.`)
-    if(!error)await load()
-  }
-
-  const marked=new Set(rows.map(row=>row.employee_id))
   const myRecord=rows.find(row=>row.employee_id===self?.id)
 
   return <section className="page">
-    <div className="intro"><div><p className="eyebrow">Kehadiran</p><h1>Presensi hari ini</h1><p>GPS hanya dibaca saat check-in/check-out. Sistem memvalidasi titik kerja, radius, tanggal lokal perusahaan, dan keterlambatan di server.</p></div>{self&&<div className="attendance-actions">{!myRecord?<button className="button primary" onClick={()=>void runSelfAttendance('in')} disabled={locating}><MapPin/>{locating?'Memeriksa GPS…':'Check-in saya'}</button>:!myRecord.check_out_at?<button className="button secondary" onClick={()=>void runSelfAttendance('out')} disabled={locating}><Clock3/>{locating?'Memeriksa GPS…':'Check-out saya'}</button>:<span className="badge active">Presensi lengkap</span>}</div>}</div>
+    <div className="intro"><div><p className="eyebrow">Kehadiran saya</p><h1>Presensi hari ini</h1><p>Check-in dan check-out menggunakan lokasi perangkat. Sistem memvalidasi titik kerja, radius, tanggal lokal perusahaan, dan keterlambatan di server.</p></div>{self&&<div className="attendance-actions">{!myRecord?<button className="button primary" onClick={()=>void runSelfAttendance('in')} disabled={locating}><MapPin/>{locating?'Memeriksa GPS…':'Check-in saya'}</button>:!myRecord.check_out_at?<button className="button secondary" onClick={()=>void runSelfAttendance('out')} disabled={locating}><Clock3/>{locating?'Memeriksa GPS…':'Check-out saya'}</button>:<span className="badge active">Presensi lengkap</span>}</div>}</div>
     {message&&<p className="note" role="status">{message}</p>}
-    {!self&&!canManage&&<article className="card"><Empty text="Akun belum terhubung ke data karyawan aktif. Minta Owner/HR menghubungkan akun pada menu Tim."/></article>}
-    <div className="cols">
-      {canManage&&<article className="card"><div className="card-title"><div><h3>Belum presensi</h3><small>Gunakan Hadir hanya sebagai override manual bila karyawan tidak dapat check-in sendiri.</small></div><span className="badge">{employees.filter(x=>!marked.has(x.id)).length} orang</span></div>{employees.filter(x=>!marked.has(x.id)).map(employee=><div className="row" key={employee.id}><div className="avatar mini">{employee.full_name[0]}</div><div><b>{employee.full_name}</b><small>{employee.position||employee.department||'Karyawan'}</small></div><button className="button secondary" disabled={busy===employee.id} onClick={()=>void markManual(employee)}>{busy===employee.id?'Menyimpan…':'Hadir manual'}</button></div>)}{!employees.filter(x=>!marked.has(x.id)).length&&<Empty text="Semua karyawan aktif sudah memiliki catatan presensi hari ini."/>}</article>}
-      <article className="card"><div className="card-title"><h3>Masuk hari ini</h3><span className="badge active">{rows.length} tercatat</span></div>{rows.map(row=><div className="row" key={row.id}><span className="dot"/><div><b>{row.employees?.full_name||'Karyawan'}</b><small>{fmtTime(row.check_in_at)}{row.check_out_at?` · selesai ${fmtTime(row.check_out_at)}`:''}{row.location_note?` · ${row.location_note}`:''}</small></div><span className={`badge ${row.status==='late'?'draft':'active'}`}>{statusLabel(row.status)}</span></div>)}{!rows.length&&<Empty text="Belum ada presensi hari ini."/>}</article>
-    </div>
+    {!self?<article className="card"><Empty text="Akun belum terhubung ke data karyawan aktif. Minta Owner/HR menghubungkan akun pada menu Tim."/></article>:<article className="card"><div className="card-title"><div><h3>Status hari ini</h3><small>{self.full_name} · {self.position||self.department||'Karyawan'} · {timezone}</small></div>{myRecord?<span className={`badge ${myRecord.status==='late'?'draft':'active'}`}>{statusLabel(myRecord.status)}</span>:<span className="badge">Belum presensi</span>}</div>{myRecord?<div className="row"><MapPin/><div><b>{fmtTime(myRecord.check_in_at)} — {fmtTime(myRecord.check_out_at)}</b><small>{myRecord.location_note||'Lokasi tervalidasi sistem'}</small></div></div>:<Empty text="Belum ada catatan presensi hari ini."/>}</article>}
   </section>
 }
