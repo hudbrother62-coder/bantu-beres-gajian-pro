@@ -1,0 +1,74 @@
+name: Wire attendance hardening
+on:
+  push:
+    branches: [main]
+    paths: ['.github/workflows/wire-attendance-hardening.yml']
+permissions:
+  contents: write
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+      - name: Patch attendance wiring and location UX
+        shell: python
+        run: |
+          from pathlib import Path
+
+          app=Path('src/App.tsx')
+          s=app.read_text()
+          if "import { AttendanceManagement } from './attendance-management'" not in s:
+              s=s.replace("import { NotificationCenter } from './notifications'\n", "import { NotificationCenter } from './notifications'\nimport { AttendanceManagement } from './attendance-management'\n")
+          s=s.replace("void Requests; void Team; void WorkSetup; void PayrollComponents", "void Requests; void Team; void WorkSetup; void PayrollComponents; void Attendance")
+          s=s.replace("['Kehadiran',CalendarCheck,['owner','hr_admin','employee']]", "['Kehadiran',CalendarCheck,['owner','hr_admin','supervisor','employee']]")
+          s=s.replace("profile.role==='supervisor'?['Beranda','Tim Saya','Kehadiran Tim','Approval Tim','Pengajuan Saya']", "profile.role==='supervisor'?['Beranda','Tim Saya','Kehadiran','Approval Tim','Pengajuan Saya']")
+          s=s.replace("if(page==='Kehadiran')return <Attendance profile={profile}/>", "if(page==='Kehadiran')return <AttendanceManagement profile={profile}/>")
+          app.write_text(s)
+
+          sup=Path('src/supervisor.tsx')
+          s=sup.read_text()
+          old="const checkIn=()=>{if(!self){setMessage('Akun Atasan belum terhubung ke data karyawan aktif.');return}if(date!==localDate()){setMessage('Check-in hanya dapat dilakukan untuk hari ini.');return}if(!navigator.geolocation){setMessage('Perangkat ini tidak menyediakan lokasi.');return}setLocating(true);navigator.geolocation.getCurrentPosition(async pos=>{const {error}=await supabase.from('attendance_records').insert({company_id:profile.company_id,employee_id:self.id,attendance_date:localDate(),status:'present',check_in_at:new Date().toISOString(),check_in_latitude:pos.coords.latitude,check_in_longitude:pos.coords.longitude,location_note:'Check-in dari perangkat Atasan'});setLocating(false);setMessage(error?'Check-in belum dapat disimpan. Mungkin presensi hari ini sudah tercatat.':'Check-in Anda berhasil dicatat.')},()=>{setLocating(false);setMessage('Lokasi tidak diizinkan. Aktifkan izin lokasi untuk check-in.')},{enableHighAccuracy:true,timeout:10000})}"
+          new="const checkIn=()=>{if(!self){setMessage('Akun Atasan belum terhubung ke data karyawan aktif.');return}if(date!==localDate()){setMessage('Check-in hanya dapat dilakukan untuk hari ini.');return}if(!navigator.geolocation){setMessage('Perangkat ini tidak menyediakan lokasi.');return}setLocating(true);navigator.geolocation.getCurrentPosition(async pos=>{const {data,error}=await supabase.rpc('attendance_check_in_self',{p_latitude:pos.coords.latitude,p_longitude:pos.coords.longitude,p_accuracy_m:pos.coords.accuracy});setLocating(false);setMessage(error?error.message:`Check-in berhasil · ${data?.location||'lokasi kerja'} · jarak ${data?.distance_m??0} m.`)},()=>{setLocating(false);setMessage('Lokasi tidak diizinkan. Aktifkan izin lokasi untuk check-in.')},{enableHighAccuracy:true,timeout:12000,maximumAge:15000})}"
+          if old not in s:
+              raise SystemExit('Supervisor check-in pattern not found')
+          s=s.replace(old,new)
+          sup.write_text(s)
+
+          setup=Path('src/setup-management.tsx')
+          s=setup.read_text()
+          marker="useEffect(()=>{void load()},[]);const saveSchedule="
+          capture="useEffect(()=>{void load()},[]);const capturePoint=()=>{if(!navigator.geolocation){setMessage('Perangkat ini tidak menyediakan GPS.');return}navigator.geolocation.getCurrentPosition(pos=>{setEditingLocation(current=>current?{...current,latitude:pos.coords.latitude,longitude:pos.coords.longitude}:current);setMessage(`Titik GPS berhasil diambil (akurasi ±${Math.round(pos.coords.accuracy)} m).`)},()=>setMessage('Lokasi tidak diizinkan. Aktifkan izin lokasi lalu coba lagi.'),{enableHighAccuracy:true,timeout:12000,maximumAge:15000})};const saveSchedule="
+          if marker not in s:
+              raise SystemExit('Setup marker not found')
+          s=s.replace(marker,capture,1)
+          old="lat=String(f.get('latitude')||''),lng=String(f.get('longitude')||''),values={"
+          new="lat=String(f.get('latitude')||''),lng=String(f.get('longitude')||''),active=f.get('active')==='on';if(active&&(!lat||!lng)){setMessage('Lokasi aktif wajib memiliki latitude dan longitude. Gunakan tombol Ambil titik GPS saya.');return}const latNum=Number(lat),lngNum=Number(lng);if(active&&(latNum < -90||latNum > 90||lngNum < -180||lngNum > 180)){setMessage('Koordinat lokasi tidak valid.');return}const values={"
+          if old not in s:
+              raise SystemExit('Location save pattern not found')
+          s=s.replace(old,new,1)
+          s=s.replace("latitude:lat?Number(lat):null,longitude:lng?Number(lng):null", "latitude:lat?latNum:null,longitude:lng?lngNum:null",1)
+          s=s.replace("is_active:f.get('active')==='on'", "is_active:active",1)
+          s=s.replace("{l.address||'Alamat belum diisi'} · {l.is_active?'Aktif':'Nonaktif'}", "{l.address||'Alamat belum diisi'} · radius {l.radius_meters} m · {l.is_active?'Aktif':'Nonaktif'}",1)
+          old_modal="<form className=\"form\" onSubmit={saveLocation}><Field label=\"Nama lokasi\"><input name=\"name\" required defaultValue={editingLocation.name||''}/></Field><Field label=\"Alamat\"><input name=\"address\" defaultValue={editingLocation.address||''}/></Field>"
+          new_modal="<form key={`${editingLocation.latitude??''}-${editingLocation.longitude??''}`} className=\"form\" onSubmit={saveLocation}><Field label=\"Nama lokasi\"><input name=\"name\" required defaultValue={editingLocation.name||''}/></Field><Field label=\"Alamat\"><input name=\"address\" defaultValue={editingLocation.address||''}/></Field><button type=\"button\" className=\"button secondary\" onClick={capturePoint}><MapPin/>Ambil titik GPS saya</button>"
+          if old_modal not in s:
+              raise SystemExit('Location modal pattern not found')
+          s=s.replace(old_modal,new_modal,1)
+          setup.write_text(s)
+      - name: Verify build
+        run: |
+          npm ci
+          npm run build
+      - name: Commit patched source and remove one-shot workflow
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git rm .github/workflows/wire-attendance-hardening.yml
+          git add src/App.tsx src/supervisor.tsx src/setup-management.tsx
+          git commit -m "fix: secure and simplify attendance flow"
+          git push
