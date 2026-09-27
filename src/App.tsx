@@ -31,11 +31,26 @@ const today=new Date().toISOString().slice(0,10)
 
 export default function App(){
   const [session,setSession]=useState<Session|null>(null),[profile,setProfile]=useState<Profile|null>(null),[page,setPage]=useState('Beranda'),[menu,setMenu]=useState(false),[loading,setLoading]=useState(true),[dark,setDark]=useState(()=>localStorage.getItem('bb-theme')==='dark')
-  useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)});const {data}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));return()=>data.subscription.unsubscribe()},[])
-  useEffect(()=>{if(!session?.user)return; supabase.from('profiles').select('*').eq('id',session.user.id).single().then(({data})=>setProfile(data as Profile|null))},[session])
+  const [profileError,setProfileError]=useState(false),[profileRetry,setProfileRetry]=useState(0)
+  useEffect(()=>{supabase.auth.getSession().then(({data})=>{setSession(data.session);setLoading(false)}).catch(()=>setLoading(false));const {data}=supabase.auth.onAuthStateChange((_e,s)=>setSession(s));return()=>data.subscription.unsubscribe()},[])
+  useEffect(()=>{
+    let active=true
+    if(!session?.user?.id){setProfile(null);setProfileError(false);return}
+    setProfile(null)
+    setProfileError(false)
+    supabase.from('profiles').select('*').eq('id',session.user.id).single().then(({data,error})=>{
+      if(!active)return
+      if(error||!data){setProfileError(true);return}
+      setProfile(data as Profile)
+    })
+    return()=>{active=false}
+  },[session?.user?.id,profileRetry])
   useEffect(()=>{document.documentElement.style.colorScheme=dark?'dark':'light';localStorage.setItem('bb-theme',dark?'dark':'light')},[dark])
   const toggleTheme=()=>setDark(value=>!value)
-  if(loading)return <div className={`app ${dark?'dark':''}`}><Boot text="Menyiapkan ruang kerja…"/></div>; if(!session)return <div className={`app ${dark?'dark':''}`}><Auth dark={dark} toggleTheme={toggleTheme}/></div>; if(!profile)return <div className={`app ${dark?'dark':''}`}><Boot text="Memuat profil perusahaan…"/></div>;
+  if(loading)return <div className={`app ${dark?'dark':''}`}><Boot text="Menyiapkan ruang kerja…"/></div>
+  if(!session)return <div className={`app ${dark?'dark':''}`}><Auth dark={dark} toggleTheme={toggleTheme}/></div>
+  if(profileError)return <div className={`app ${dark?'dark':''}`}><main className="boot"><Brand/><p>Profil akun belum berhasil dimuat. Coba lagi atau keluar dan masuk ulang.</p><div className="inline-actions"><button className="button primary" onClick={()=>setProfileRetry(value=>value+1)}>Muat ulang profil</button><button className="button secondary" onClick={()=>void supabase.auth.signOut()}>Keluar akun</button></div></main></div>
+  if(!profile||profile.id!==session.user.id)return <div className={`app ${dark?'dark':''}`}><Boot text="Memuat profil perusahaan…"/></div>
   return <div className={`app ${dark?'dark':''}`}><Shell profile={profile} page={page} setPage={setPage} menu={menu} setMenu={setMenu} dark={dark} toggleTheme={toggleTheme}/></div>
 }
 
