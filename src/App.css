@@ -10,6 +10,6 @@
 .team-link-row>div:first-child{min-width:150px;flex:1 1 170px}
 .team-link-row>select{min-width:170px;max-width:100%;flex:1 1 190px}
 .team-draft-action{display:flex;align-items:center;gap:8px;flex:1 1 245px;min-width:0}
-.team-draft-action input{width:100%;min-width:0;flex:1 1 130px;border:1px solid var(--line);border-radius:10px;background:var(--surface);color:var(--ink);padding:10px 12px}
+.team-draft-action input{width:100%;min-width:0;flex:1 1 130px;border:1px solid var(--line);border-radius:10px;background:var(--card);color:var(--ink);padding:10px 12px}
 .team-draft-action .button{white-space:nowrap;flex-shrink:0}
 @media(max-width:640px){.team-link-row>select,.team-draft-action,.team-link-row>div:first-child{flex-basis:100%;width:100%}.team-draft-action{flex-wrap:wrap}.team-draft-action input{flex:1 1 100px}}
