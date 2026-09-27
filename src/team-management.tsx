@@ -13,7 +13,7 @@ export function TeamManagement({profile}:{profile:Profile}){
   const canManage=['owner','hr_admin'].includes(profile.role),isOwner=profile.role==='owner'
   const [rows,setRows]=useState<Profile[]>([]),[employees,setEmployees]=useState<Employee[]>([])
   const [open,setOpen]=useState(false),[editing,setEditing]=useState<Profile|null>(null),[message,setMessage]=useState(''),[busy,setBusy]=useState(false),[loading,setLoading]=useState(true)
-  const [selectedEmployee,setSelectedEmployee]=useState(''),[linkChoices,setLinkChoices]=useState<Record<string,string>>({})
+  const [selectedEmployee,setSelectedEmployee]=useState(''),[linkChoices,setLinkChoices]=useState<Record<string,string>>({}),[draftCodes,setDraftCodes]=useState<Record<string,string>>({})
 
   const load=async()=>{
     setLoading(true)
@@ -47,7 +47,7 @@ export function TeamManagement({profile}:{profile:Profile}){
     setBusy(true)
     const {data,error}=await supabase.functions.invoke('create-team-member',{body})
     setBusy(false)
-    if(error||data?.error){setMessage(data?.error||'Perubahan akun tim belum dapat diproses.');return false}
+    if(error||data?.error){let detail=data?.error||'';if(!detail&&error){try{detail=String((await (error as any).context?.json?.())?.error||'')}catch{/* Retain fallback error. */}}setMessage(detail||'Perubahan akun tim belum dapat diproses.');return false}
     await load();setMessage(success);return true
   }
 
@@ -71,6 +71,12 @@ export function TeamManagement({profile}:{profile:Profile}){
     if(!employeeId){setMessage(`Pilih data karyawan untuk @${account.username} terlebih dahulu.`);return}
     if(await invoke({action:'link-existing',profileId:account.id,employeeId},`Akun @${account.username} berhasil dihubungkan ke data karyawan.`))setLinkChoices(v=>({...v,[account.id]:''}))
   }
+  const createDraft=async(account:Profile)=>{
+    if(!manageable(account))return
+    const employeeCode=(draftCodes[account.id]||account.username).trim().toUpperCase()
+    if(!employeeCode){setMessage('Kode karyawan wajib diisi.');return}
+    if(await invoke({action:'create-draft-employee',profileId:account.id,employeeCode},`Data draft untuk @${account.username} berhasil dibuat. Lengkapi dan aktifkan melalui menu Karyawan.`))setDraftCodes(v=>({...v,[account.id]:''}))
+  }
   const picked=employees.find(row=>row.id===selectedEmployee)
   const manageable=(row:Profile)=>row.role!=='owner'&&(isOwner||row.role==='employee')
   const statusFor=(employee:Employee)=>{
@@ -87,7 +93,7 @@ export function TeamManagement({profile}:{profile:Profile}){
 
     <article className="card"><div className="card-title"><div><h3>Status Karyawan ↔ Akun Tim</h3><small>{linkedEmployees.length} terhubung · {availableEmployees.length} karyawan aktif belum punya akun · {employees.filter(e=>e.onboarding_status==='draft').length} draft.</small></div><span className="badge">{employees.length} karyawan</span></div>{employees.map(employee=>{const status=statusFor(employee);return <div className="row team-status-row" key={employee.id}><div className="avatar mini">{employee.full_name[0]}</div><div><b>{employee.full_name}</b><small>{employee.employee_code} · {employee.position||employee.department||'Jabatan belum lengkap'}</small></div><span className={status.className}>{status.label}</span></div>})}{!employees.length&&<p className="empty">{loading?'Memuat data karyawan…':'Belum ada data karyawan.'}</p>}</article>
 
-    {unlinkedEmployeeAccounts.length>0&&<article className="card"><div className="card-title"><div><h3>Akun Karyawan belum terhubung</h3><small>Pilih karyawan aktif yang belum mempunyai akun, lalu hubungkan. Data tidak diduplikasi.</small></div><span className="badge draft">{unlinkedEmployeeAccounts.length} akun</span></div>{unlinkedEmployeeAccounts.map(account=><div className="row team-link-row" key={account.id}><div><b>{account.full_name}</b><small>@{account.username}</small></div><select value={linkChoices[account.id]||''} onChange={e=>setLinkChoices(v=>({...v,[account.id]:e.target.value}))}><option value="">Pilih karyawan aktif</option>{availableEmployees.map(employee=><option key={employee.id} value={employee.id}>{employee.full_name} · {employee.employee_code}</option>)}</select><button className="button secondary" disabled={busy||!availableEmployees.length} onClick={()=>void linkExisting(account)}><Link2/>Hubungkan</button></div>)}{!availableEmployees.length&&<p className="note">Belum ada karyawan aktif yang bebas untuk ditautkan. Lengkapi/aktifkan karyawan di menu Karyawan terlebih dahulu.</p>}</article>}
+    {unlinkedEmployeeAccounts.length>0&&<article className="card"><div className="card-title"><div><h3>Akun Karyawan belum terhubung</h3><small>Pilih karyawan aktif yang belum mempunyai akun, lalu hubungkan. Data tidak diduplikasi.</small></div><span className="badge draft">{unlinkedEmployeeAccounts.length} akun</span></div>{unlinkedEmployeeAccounts.map(account=><div className="row team-link-row" key={account.id}><div><b>{account.full_name}</b><small>@{account.username}</small></div><select value={linkChoices[account.id]||''} onChange={e=>setLinkChoices(v=>({...v,[account.id]:e.target.value}))}><option value="">Pilih karyawan aktif</option>{availableEmployees.map(employee=><option key={employee.id} value={employee.id}>{employee.full_name} · {employee.employee_code}</option>)}</select><button className="button secondary" disabled={busy||!availableEmployees.length} onClick={()=>void linkExisting(account)}><Link2/>Hubungkan</button><div className="team-draft-action"><input aria-label={`Kode draft untuk @${account.username}`} value={draftCodes[account.id]||''} onChange={e=>setDraftCodes(v=>({...v,[account.id]:e.target.value}))} placeholder={account.username.toUpperCase()}/><button className="button secondary" disabled={busy} onClick={()=>void createDraft(account)}>Buat data draft</button></div></div>)}{!availableEmployees.length&&<p className="note">Belum ada karyawan aktif yang bebas. Akun lama tetap dapat dibuatkan data karyawan draft, kemudian dilengkapi dan diaktifkan di menu Karyawan.</p>}</article>}
 
     <div className="team">{rows.map(r=>{const linked=employees.find(e=>e.profile_id===r.id)||null;return <article className="card member" key={r.id}><div className="avatar">{(linked?.full_name||r.full_name)[0]}</div><div><h3>{linked?.full_name||r.full_name}</h3><p>@{r.username}</p><div className="inline-actions"><span className="badge">{roles[r.role]||r.role}</span><span className={r.is_active===false?'badge rejected':'badge active'}>{r.is_active===false?'Akun nonaktif':'Akun aktif'}</span></div><small>{linked?`${linked.employee_code} · ${linked.position||linked.department||'Data jabatan belum lengkap'}`:r.role==='employee'?'Belum terhubung ke data karyawan':'Akun manajemen'}</small>{manageable(r)&&<div className="workflow-actions"><button className="button secondary" data-action-feedback="off" onClick={()=>setEditing(r)}>Edit</button><button className="button secondary" disabled={busy} onClick={()=>void setActive(r,r.is_active===false)}>{r.is_active===false?'Aktifkan':'Nonaktifkan'}</button><button className="button secondary" disabled={busy} onClick={()=>void remove(r)}>Hapus akun</button></div>}</div></article>})}</div>
 
