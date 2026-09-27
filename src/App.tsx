@@ -9,7 +9,6 @@ import { CompanyWorkflow } from './employees'
 import { EmployeeManagement } from './employee-management'
 import { GuideManagement } from './guide-management'
 import { PayrollWorkflow } from './payroll'
-import { Team } from './team'
 import { NotificationCenter } from './notifications'
 import { AttendanceManagement } from './attendance-management'
 import { TeamManagement } from './team-management'
@@ -21,7 +20,7 @@ import './theme.css'
 import './approval.css'
 
 // Legacy in-file implementations are intentionally retained as rollback-safe fallbacks.
-void Requests; void Team; void WorkSetup; void PayrollComponents; void Attendance
+void Requests; void WorkSetup; void PayrollComponents; void Attendance
 
 type Profile = { id:string; company_id:string; full_name:string; username:string; role:string; employees?:Employee[] }
 type Employee = { id:string; employee_code:string; full_name:string; email?:string|null; phone?:string|null; department?:string|null; position?:string|null; employment_type?:string|null; hire_date?:string|null; base_salary:number; bank_name?:string|null; bank_account_name?:string|null; bank_account_number?:string|null; is_active:boolean }
